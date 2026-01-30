@@ -38,6 +38,14 @@ export async function POST(req: NextRequest) {
         { status: 504 }
       );
     }
+    const isConnectionError =
+      err instanceof TypeError && (err.message.includes("fetch") || err.message.includes("connect"));
+    if (isConnectionError || !process.env.EXTRACT_API_URL) {
+      return NextResponse.json(
+        { error: "Backend API is not connected. Set the EXTRACT_API_URL environment variable." },
+        { status: 503 }
+      );
+    }
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }
