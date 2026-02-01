@@ -387,3 +387,26 @@ body {
     transform: translateX(-50%) translateY(0);
   }
 }
+
+/* New Search button */
+.btn-new-search {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px 24px;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-new-search:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+  color: var(--text-secondary);
+}

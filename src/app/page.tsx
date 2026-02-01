@@ -66,6 +66,22 @@ export default function Home() {
         )}
 
         {result && <ResultCard result={result} />}
+
+        {(result || error) && (
+          <button
+            className="btn-new-search w-full max-w-2xl animate-fade-up-delay-1"
+            onClick={() => {
+              setResult(null);
+              setError("");
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="1 4 1 10 7 10" />
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+            </svg>
+            New Search
+          </button>
+        )}
       </div>
     </main>
   );
