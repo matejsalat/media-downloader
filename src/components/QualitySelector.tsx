@@ -28,53 +28,27 @@ export default function QualitySelector({
   selected,
   onSelect,
 }: QualitySelectorProps) {
-  const videoFormats = formats.filter((f) => f.type === "video");
-  const audioFormats = formats.filter((f) => f.type === "audio");
-
   return (
-    <div className="space-y-4">
-      {videoFormats.length > 0 && (
-        <div>
-          <p className="text-sm text-[var(--text-muted)] mb-2 font-medium">
-            Video
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {videoFormats.map((f) => (
-              <button
-                key={f.format_id}
-                className={`quality-pill ${
-                  selected === f.format_id ? "active" : ""
-                }`}
-                onClick={() => onSelect(f.format_id)}
-              >
-                {f.quality} ({f.ext})
-                {f.filesize ? ` \u2022 ${formatSize(f.filesize)}` : ""}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {audioFormats.length > 0 && (
-        <div>
-          <p className="text-sm text-[var(--text-muted)] mb-2 font-medium">
-            Audio
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {audioFormats.map((f) => (
-              <button
-                key={f.format_id}
-                className={`quality-pill ${
-                  selected === f.format_id ? "active" : ""
-                }`}
-                onClick={() => onSelect(f.format_id)}
-              >
-                {f.quality} ({f.ext})
-                {f.filesize ? ` \u2022 ${formatSize(f.filesize)}` : ""}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+    <div className="flex flex-wrap gap-2">
+      {formats.map((f) => (
+        <button
+          key={f.format_id}
+          className={`quality-pill ${
+            selected === f.format_id ? "active" : ""
+          }`}
+          onClick={() => onSelect(f.format_id)}
+        >
+          {f.quality}
+          <span className="text-[var(--text-muted)] ml-1">
+            .{f.ext}
+          </span>
+          {f.filesize ? (
+            <span className="text-[var(--text-muted)] ml-1">
+              {formatSize(f.filesize)}
+            </span>
+          ) : null}
+        </button>
+      ))}
     </div>
   );
 }

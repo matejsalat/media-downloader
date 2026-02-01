@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import QualitySelector, { FormatOption } from "./QualitySelector";
 import DownloadButton from "./DownloadButton";
 
@@ -15,6 +15,8 @@ interface ResultCardProps {
   result: MediaResult;
 }
 
+type MediaMode = "video" | "audio";
+
 function formatDuration(seconds?: string): string {
   if (!seconds) return "";
   const s = parseInt(seconds, 10);
@@ -27,9 +29,25 @@ function formatDuration(seconds?: string): string {
 }
 
 export default function ResultCard({ result }: ResultCardProps) {
-  const [selectedFormat, setSelectedFormat] = useState(
-    result.formats[0]?.format_id ?? ""
+  const hasVideo = result.formats.some((f) => f.type === "video");
+  const hasAudio = result.formats.some((f) => f.type === "audio");
+
+  const [mode, setMode] = useState<MediaMode>(hasVideo ? "video" : "audio");
+
+  const filteredFormats = useMemo(
+    () => result.formats.filter((f) => f.type === mode),
+    [result.formats, mode]
   );
+
+  const [selectedFormat, setSelectedFormat] = useState(
+    filteredFormats[0]?.format_id ?? ""
+  );
+
+  const handleModeChange = (newMode: MediaMode) => {
+    setMode(newMode);
+    const first = result.formats.find((f) => f.type === newMode);
+    if (first) setSelectedFormat(first.format_id);
+  };
 
   const currentFormat = result.formats.find(
     (f) => f.format_id === selectedFormat
@@ -63,10 +81,39 @@ export default function ResultCard({ result }: ResultCardProps) {
         </div>
       </div>
 
-      {result.formats.length > 0 && (
+      {hasVideo && hasAudio && (
+        <div className="flex gap-2 mb-5">
+          <button
+            className={`mode-tab ${mode === "video" ? "active" : ""}`}
+            onClick={() => handleModeChange("video")}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polygon points="23 7 16 12 23 17 23 7" />
+              <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+            </svg>
+            Video
+          </button>
+          <button
+            className={`mode-tab ${mode === "audio" ? "active" : ""}`}
+            onClick={() => handleModeChange("audio")}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 18V5l12-2v13" />
+              <circle cx="6" cy="18" r="3" />
+              <circle cx="18" cy="16" r="3" />
+            </svg>
+            Audio Only
+          </button>
+        </div>
+      )}
+
+      {filteredFormats.length > 0 && (
         <div className="mb-5">
+          <p className="text-sm text-[var(--text-muted)] mb-2 font-medium">
+            Quality
+          </p>
           <QualitySelector
-            formats={result.formats}
+            formats={filteredFormats}
             selected={selectedFormat}
             onSelect={setSelectedFormat}
           />
