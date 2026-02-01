@@ -1,10 +1,14 @@
 import json
 import os
 import subprocess
+import tempfile
 import time
 from collections import defaultdict
-from fastapi import FastAPI, HTTPException
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="MediaGrab API")
@@ -14,7 +18,7 @@ allowed_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").spl
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_methods=["POST"],
+    allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
 )
 
@@ -38,32 +42,143 @@ def _check_rate_limit(ip: str) -> bool:
     return True
 
 
+def _run_ytdlp(args: list[str], timeout: int = 25) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(
+            ["yt-dlp"] + args,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Extraction timed out")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="yt-dlp is not installed on the server")
+
+
+def _pick_video_tiers(info: dict) -> list[dict]:
+    """Pick 3 video tiers: highest, mid, lowest from available formats."""
+    all_formats = info.get("formats", [])
+
+    # Collect all formats that have video (we'll merge audio via yt-dlp at download time)
+    video_fmts = []
+    for f in all_formats:
+        vcodec = f.get("vcodec", "none")
+        if vcodec == "none":
+            continue
+        height = f.get("height")
+        if not height:
+            continue
+        video_fmts.append(f)
+
+    if not video_fmts:
+        return []
+
+    # Deduplicate by height, keeping the best bitrate per height
+    by_height: dict[int, dict] = {}
+    for f in video_fmts:
+        h = f["height"]
+        existing = by_height.get(h)
+        if not existing or (f.get("tbr") or 0) > (existing.get("tbr") or 0):
+            by_height[h] = f
+
+    heights = sorted(by_height.keys(), reverse=True)
+
+    if len(heights) == 0:
+        return []
+
+    tiers = []
+
+    # Highest
+    h = heights[0]
+    f = by_height[h]
+    tiers.append({
+        "tier": "highest",
+        "label": f"{h}p",
+        "height": h,
+        "ext": "mp4",
+        "filesize": f.get("filesize") or f.get("filesize_approx"),
+    })
+
+    if len(heights) >= 3:
+        # Mid = middle of the list
+        mid_idx = len(heights) // 2
+        h = heights[mid_idx]
+        f = by_height[h]
+        tiers.append({
+            "tier": "mid",
+            "label": f"{h}p",
+            "height": h,
+            "ext": "mp4",
+            "filesize": f.get("filesize") or f.get("filesize_approx"),
+        })
+
+        # Lowest
+        h = heights[-1]
+        f = by_height[h]
+        tiers.append({
+            "tier": "lowest",
+            "label": f"{h}p",
+            "height": h,
+            "ext": "mp4",
+            "filesize": f.get("filesize") or f.get("filesize_approx"),
+        })
+    elif len(heights) == 2:
+        # Only 2 available: highest + lowest
+        h = heights[-1]
+        f = by_height[h]
+        tiers.append({
+            "tier": "lowest",
+            "label": f"{h}p",
+            "height": h,
+            "ext": "mp4",
+            "filesize": f.get("filesize") or f.get("filesize_approx"),
+        })
+
+    return tiers
+
+
+def _pick_best_audio(info: dict) -> dict | None:
+    """Pick the single best audio format."""
+    all_formats = info.get("formats", [])
+    best = None
+    best_abr = 0
+
+    for f in all_formats:
+        vcodec = f.get("vcodec", "none")
+        acodec = f.get("acodec", "none")
+        if vcodec != "none" or acodec == "none":
+            continue
+        abr = f.get("abr") or 0
+        if abr >= best_abr:
+            best_abr = abr
+            best = f
+
+    if not best:
+        return None
+
+    abr = best.get("abr")
+    return {
+        "tier": "highest",
+        "label": f"{int(abr)}kbps" if abr else "Best",
+        "ext": "mp3",
+        "filesize": best.get("filesize") or best.get("filesize_approx"),
+    }
+
+
 @app.post("/extract")
 async def extract(request: ExtractRequest):
     url = request.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL is required")
 
-    try:
-        result = subprocess.run(
-            [
-                "yt-dlp",
-                "--dump-json",
-                "--no-download",
-                "--no-warnings",
-                "--no-playlist",
-                url,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=25,
-        )
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Extraction timed out")
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=500, detail="yt-dlp is not installed on the server"
-        )
+    result = _run_ytdlp([
+        "--dump-json",
+        "--no-download",
+        "--no-warnings",
+        "--no-playlist",
+        url,
+    ])
 
     if result.returncode != 0:
         stderr = result.stderr.strip()
@@ -79,88 +194,8 @@ async def extract(request: ExtractRequest):
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Failed to parse extraction result")
 
-    formats = []
-    seen = set()
-
-    for f in info.get("formats", []):
-        f_url = f.get("url")
-        if not f_url:
-            continue
-
-        vcodec = f.get("vcodec", "none")
-        acodec = f.get("acodec", "none")
-        has_video = vcodec != "none"
-        has_audio = acodec != "none"
-
-        if has_video and has_audio:
-            fmt_type = "video"
-            height = f.get("height")
-            quality = f"{height}p" if height else f.get("format_note", "unknown")
-        elif has_video:
-            # Video-only, skip (need merged)
-            continue
-        elif has_audio:
-            fmt_type = "audio"
-            abr = f.get("abr")
-            quality = f"{int(abr)}kbps" if abr else f.get("format_note", "audio")
-        else:
-            continue
-
-        ext = f.get("ext", "mp4")
-        key = f"{fmt_type}-{quality}-{ext}"
-        if key in seen:
-            continue
-        seen.add(key)
-
-        formats.append(
-            {
-                "format_id": f.get("format_id", ""),
-                "ext": ext,
-                "quality": quality,
-                "filesize": f.get("filesize") or f.get("filesize_approx"),
-                "type": fmt_type,
-                "url": f_url,
-            }
-        )
-
-    # Sort: video by height desc, audio by abr desc
-    def sort_key(fmt: dict) -> tuple:
-        if fmt["type"] == "video":
-            try:
-                return (0, -int(fmt["quality"].replace("p", "")))
-            except ValueError:
-                return (0, 0)
-        else:
-            try:
-                return (1, -int(fmt["quality"].replace("kbps", "")))
-            except ValueError:
-                return (1, 0)
-
-    formats.sort(key=sort_key)
-
-    # If no combined video+audio formats, include best video-only + best audio
-    if not any(f["type"] == "video" for f in formats):
-        for f in info.get("formats", []):
-            f_url = f.get("url")
-            if not f_url:
-                continue
-            vcodec = f.get("vcodec", "none")
-            acodec = f.get("acodec", "none")
-            if vcodec != "none" and acodec == "none":
-                height = f.get("height")
-                formats.insert(
-                    0,
-                    {
-                        "format_id": f.get("format_id", ""),
-                        "ext": f.get("ext", "mp4"),
-                        "quality": f"{height}p (video only)"
-                        if height
-                        else "video only",
-                        "filesize": f.get("filesize") or f.get("filesize_approx"),
-                        "type": "video",
-                        "url": f_url,
-                    },
-                )
+    video_tiers = _pick_video_tiers(info)
+    audio_tier = _pick_best_audio(info)
 
     duration = info.get("duration")
 
@@ -168,8 +203,80 @@ async def extract(request: ExtractRequest):
         "title": info.get("title", "Unknown"),
         "thumbnail": info.get("thumbnail", ""),
         "duration": str(int(duration)) if duration else None,
-        "formats": formats,
+        "video_formats": video_tiers,
+        "audio_format": audio_tier,
     }
+
+
+@app.get("/download")
+async def download(
+    url: str = Query(...),
+    mode: str = Query(..., pattern="^(video|audio)$"),
+    quality: str = Query("highest", pattern="^(highest|mid|lowest)$"),
+    title: str = Query("download"),
+):
+    """Download media via yt-dlp and stream the file to the client."""
+
+    if mode == "video":
+        # Map quality tier to height filter
+        height_map = {"highest": "", "mid": "[height<=720]", "lowest": "[height<=360]"}
+        height_filter = height_map.get(quality, "")
+        format_str = f"bestvideo{height_filter}+bestaudio/best{height_filter}"
+        ext = "mp4"
+        merge_args = ["--merge-output-format", "mp4"]
+    else:
+        format_str = "bestaudio/best"
+        ext = "mp3"
+        merge_args = ["--extract-audio", "--audio-format", "mp3"]
+
+    safe_title = "".join(c for c in title if c.isalnum() or c in " -_").strip() or "download"
+    filename = f"{safe_title}.{ext}"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = os.path.join(tmpdir, f"output.{ext}")
+
+        cmd = [
+            "yt-dlp",
+            "-f", format_str,
+            *merge_args,
+            "--no-playlist",
+            "--no-warnings",
+            "-o", output_path,
+            url,
+        ]
+
+        try:
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="Download timed out")
+
+        if proc.returncode != 0:
+            raise HTTPException(status_code=500, detail="Download failed")
+
+        # Find the actual output file (yt-dlp may change extension)
+        actual_file = None
+        for f in Path(tmpdir).iterdir():
+            if f.is_file():
+                actual_file = f
+                break
+
+        if not actual_file or not actual_file.exists():
+            raise HTTPException(status_code=500, detail="Download produced no file")
+
+        file_bytes = actual_file.read_bytes()
+        actual_ext = actual_file.suffix.lstrip(".")
+
+        def iter_file():
+            yield file_bytes
+
+        return StreamingResponse(
+            iter_file(),
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_title}.{actual_ext}"',
+                "Content-Length": str(len(file_bytes)),
+            },
+        )
 
 
 @app.get("/health")

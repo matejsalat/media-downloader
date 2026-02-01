@@ -30,7 +30,11 @@ export async function POST(req: NextRequest) {
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    return NextResponse.json({
+      ...data,
+      source_url: url,
+      download_base: EXTRACT_API_URL,
+    });
   } catch (err) {
     if (err instanceof DOMException && err.name === "TimeoutError") {
       return NextResponse.json(
