@@ -1,22 +1,26 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import Background from "@/components/Background";
 import Hero from "@/components/Hero";
 import UrlInput from "@/components/UrlInput";
 import ResultCard, { MediaResult } from "@/components/ResultCard";
+import ValueProps from "@/components/ValueProps";
+import HowItWorks from "@/components/HowItWorks";
 
 export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<MediaResult | null>(null);
   const [error, setError] = useState("");
   const [showNotif, setShowNotif] = useState(false);
+  const hasSearched = useRef(false);
 
   const handleExtract = useCallback(async (url: string) => {
     setLoading(true);
     setError("");
     setResult(null);
     setShowNotif(false);
+    hasSearched.current = true;
 
     try {
       const res = await fetch("/api/extract", {
@@ -41,11 +45,12 @@ export default function Home() {
     }
   }, []);
 
+  const showIntro = !hasSearched.current && !result && !loading;
+
   return (
     <main className="relative min-h-screen flex flex-col items-center px-4 py-8">
       <Background />
 
-      {/* Success notification toast */}
       {showNotif && (
         <div className="toast animate-fade-up">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -58,6 +63,13 @@ export default function Home() {
       <div className="w-full max-w-2xl mx-auto flex flex-col items-center gap-6">
         <Hero collapsed={!!result} />
         <UrlInput onSubmit={handleExtract} loading={loading} />
+
+        {showIntro && (
+          <>
+            <ValueProps />
+            <HowItWorks />
+          </>
+        )}
 
         {error && (
           <div className="glass-card p-4 w-full max-w-2xl mx-auto animate-fade-in border-[var(--error)]">
