@@ -334,3 +334,56 @@ body {
   padding: 3px 8px;
   border-radius: 6px;
 }
+
+/* Smallest size badge (gray, subtle) */
+.small-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+/* Success button state */
+.btn-success {
+  background: var(--success) !important;
+}
+
+.btn-success:hover {
+  background: var(--success) !important;
+  box-shadow: 0 0 20px rgba(52, 211, 153, 0.3);
+}
+
+/* Toast notification */
+.toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--success);
+  color: white;
+  font-weight: 500;
+  font-size: 0.9rem;
+  padding: 12px 24px;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  animation: toastIn 0.4s ease-out forwards;
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}

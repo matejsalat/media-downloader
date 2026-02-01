@@ -132,6 +132,9 @@ export default function ResultCard({ result }: { result: MediaResult }) {
                 {f.tier === "highest" && (
                   <span className="best-badge">Best quality</span>
                 )}
+                {f.tier === "lowest" && (
+                  <span className="small-badge">Smallest size</span>
+                )}
               </div>
               {f.filesize && (
                 <span className="text-sm text-[var(--text-muted)]">{formatSize(f.filesize)}</span>
