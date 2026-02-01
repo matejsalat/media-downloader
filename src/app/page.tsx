@@ -63,11 +63,14 @@ export default function Home() {
       <div className="w-full max-w-2xl mx-auto flex flex-col items-center gap-6">
         <Hero collapsed={!!result} />
 
-        {showIntro && <ValueProps />}
+        {showIntro && (
+          <>
+            <ValueProps />
+            <HowItWorks />
+          </>
+        )}
 
         <UrlInput onSubmit={handleExtract} loading={loading} />
-
-        {showIntro && <HowItWorks />}
 
         {error && (
           <div className="glass-card p-4 w-full max-w-2xl mx-auto animate-fade-in border-[var(--error)]">
